@@ -528,9 +528,9 @@ class ElectrumWindow(QMainWindow):
     def create_history_menu(self, position):
         self.history_list.selectedIndexes()
         item = self.history_list.currentItem()
-        be = self.config.get('block_explorer', 'BitInfoCharts.com')
-        if be == 'BitInfoCharts.com':
-            block_explorer = 'http://bitinfocharts.com/reddcoin/tx/'
+        be = self.config.get('block_explorer', 'live.reddcoin.com')
+        if be == 'live.reddcoin.com':
+            block_explorer = 'http://live.reddcoin.com/tx/'
 
         if not item: return
         tx_hash = str(item.data(0, Qt.UserRole).toString())
@@ -2575,11 +2575,11 @@ class ElectrumWindow(QMainWindow):
         fee_e.editingFinished.connect(on_fee)
         widgets.append((fee_label, fee_e, fee_help))
 
-        block_explorers = ['BitInfoCharts.com']
+        block_explorers = ['live.reddcoin.com']
         block_ex_label = QLabel(_('Online Block Explorer') + ':')
         block_ex_combo = QComboBox()
         block_ex_combo.addItems(block_explorers)
-        block_ex_combo.setCurrentIndex(block_explorers.index(self.config.get('block_explorer', 'BitInfoCharts.com')))
+        block_ex_combo.setCurrentIndex(block_explorers.index(self.config.get('block_explorer', 'live.reddcoin.com')))
         block_ex_help = HelpButton(_('Choose which online block explorer to use for functions that open a web browser'))
         def on_be(x):
             be_result = block_explorers[block_ex_combo.currentIndex()]
