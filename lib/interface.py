@@ -168,7 +168,7 @@ class TcpInterface(threading.Thread):
                     return
                 # try with CA first
                 try:
-                    s = ssl.wrap_socket(s, ssl_version=ssl.PROTOCOL_SSLv3, cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca_path, do_handshake_on_connect=True)
+                    s = ssl.wrap_socket(s, ssl_version=ssl.PROTOCOL_SSLv23, cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca_path, do_handshake_on_connect=True)
                 except ssl.SSLError, e:
                     s = None
                 if s and self.check_host_name(s.getpeercert(), self.host):
@@ -179,7 +179,7 @@ class TcpInterface(threading.Thread):
                 # Do not use ssl.get_server_certificate because it does not work with proxy
                 s = self.get_simple_socket()
                 try:
-                    s = ssl.wrap_socket(s, ssl_version=ssl.PROTOCOL_SSLv3, cert_reqs=ssl.CERT_NONE, ca_certs=None)
+                    s = ssl.wrap_socket(s, ssl_version=ssl.PROTOCOL_SSLv23, cert_reqs=ssl.CERT_NONE, ca_certs=None)
                 except ssl.SSLError, e:
                     print_error("SSL error retrieving SSL certificate:", self.host, e)
                     return
@@ -205,7 +205,7 @@ class TcpInterface(threading.Thread):
         if self.use_ssl:
             try:
                 s = ssl.wrap_socket(s,
-                                    ssl_version=ssl.PROTOCOL_SSLv3,
+                                    ssl_version=ssl.PROTOCOL_SSLv23,
                                     cert_reqs=ssl.CERT_REQUIRED,
                                     ca_certs=(temporary_path if is_new else cert_path),
                                     do_handshake_on_connect=True)
@@ -247,6 +247,7 @@ class TcpInterface(threading.Thread):
                 os.rename(temporary_path, cert_path)
 
         return s
+        
 
     def send_request(self, request, queue=None):
         _id = request.get('id')
@@ -348,7 +349,7 @@ class HttpInterface(TcpInterface):
     def send_request(self, request, queue=None):
         import urllib2, json, time, cookielib
         # print_error("send_http", request)
-        
+
         if self.proxy:
             socks.setdefaultproxy(self.proxy_mode, self.proxy["host"], int(self.proxy["port"]))
             socks.wrapmodule(urllib2)
@@ -376,8 +377,9 @@ class HttpInterface(TcpInterface):
             data_json = json.dumps(data)
         else:
             # poll with GET
-            data_json = None 
+            data_json = None
 
+            
         headers = {'content-type': 'application/json'}
         if self.session_id:
             headers['cookie'] = 'SESSION=%s' % self.session_id
@@ -408,10 +410,10 @@ class HttpInterface(TcpInterface):
                     for item in response:
                         self.process_response(item)
 
-        if response: 
+        if response:
             self.poll_interval = 1
         else:
-            if self.poll_interval < 15: 
+            if self.poll_interval < 15:
                 self.poll_interval += 1
         #print self.poll_interval, response
         self.rtime = time.time() - t1
@@ -458,7 +460,7 @@ class HttpInterface(TcpInterface):
             except Exception:
                 traceback.print_exc(file=sys.stdout)
                 break
-            
+
         self.is_connected = False
         self.change_status()
 

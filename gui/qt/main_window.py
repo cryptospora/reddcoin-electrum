@@ -45,7 +45,7 @@ from electrum import Imported_Wallet
 from .amountedit import AmountEdit, RDDAmountEdit, MyLineEdit
 from .network_dialog import NetworkDialog
 from .qrcodewidget import QRCodeWidget, QRDialog
-from .qrtextedit import QRTextEdit
+from .qrtextedit import ScanQRTextEdit, ShowQRTextEdit
 
 from decimal import Decimal
 
@@ -1062,7 +1062,8 @@ class ElectrumWindow(QMainWindow):
 
         try:
             tx = self.wallet.make_unsigned_transaction(outputs, fee, None, coins = coins)
-            tx.error = None
+            if not tx:
+                raise BaseException(_("Insufficient funds"))
         except Exception as e:
             traceback.print_exc(file=sys.stdout)
             self.show_message(str(e))
@@ -1096,33 +1097,20 @@ class ElectrumWindow(QMainWindow):
         def sign_thread():
             if self.wallet.is_watching_only():
                 return tx
-            keypairs = {}
-            try:
-                self.wallet.add_keypairs(tx, keypairs, password)
-                self.wallet.sign_transaction(tx, keypairs, password)
-            except Exception as e:
-                traceback.print_exc(file=sys.stdout)
-                tx.error = str(e)
+            self.wallet.sign_transaction(tx, password)
             return tx
 
         def sign_done(tx):
-            if tx.error:
-                self.show_message(tx.error)
-                self.send_button.setDisabled(False)
-                return
             if label:
                 self.wallet.set_label(tx.hash(), label)
-
             if not tx.is_complete() or self.config.get('show_before_broadcast'):
                 self.show_transaction(tx)
                 self.do_clear()
-                self.send_button.setDisabled(False)
                 return
-
             self.broadcast_transaction(tx)
 
         # keep a reference to WaitingDialog or the gui might crash
-        self.waiting_dialog = WaitingDialog(self, 'Signing..', sign_thread, sign_done)
+        self.waiting_dialog = WaitingDialog(self, 'Signing..', sign_thread, sign_done, lambda: self.send_button.setDisabled(False))
         self.waiting_dialog.start()
 
 
@@ -1239,6 +1227,7 @@ class ElectrumWindow(QMainWindow):
                 self.message_e.setText(message)
             if amount:
                 self.amount_e.setAmount(amount)
+                self.amount_e.textEdited.emit("")
             return
 
         from electrum import paymentrequest
@@ -1269,7 +1258,7 @@ class ElectrumWindow(QMainWindow):
         self.payto_help.set_alt(None)
         self.set_pay_from([])
         self.update_status()
-
+        run_hook('do_clear')
 
 
     def set_addrs_frozen(self,addrs,freeze):
@@ -1822,15 +1811,34 @@ class ElectrumWindow(QMainWindow):
 
         main_layout = QGridLayout()
         mpk_dict = self.wallet.get_master_public_keys()
-        i = 0
-        for key, value in mpk_dict.items():
-            main_layout.addWidget(QLabel(key), i, 0)
-            mpk_text = QRTextEdit()
-            mpk_text.setReadOnly(True)
+        # filter out the empty keys (PendingAccount)
+        mpk_dict = {acc:mpk for acc,mpk in mpk_dict.items() if mpk}
+
+        # only show the combobox in case multiple accounts are available
+        if len(mpk_dict) > 1:
+            combobox = QComboBox()
+            for name in mpk_dict:
+                combobox.addItem(name)
+            combobox.setCurrentIndex(0)
+            main_layout.addWidget(combobox, 1, 0)
+
+            account = unicode(combobox.currentText())
+            mpk_text = ShowQRTextEdit(text=mpk_dict[account])
             mpk_text.setMaximumHeight(170)
-            mpk_text.setText(value)
-            main_layout.addWidget(mpk_text, i + 1, 0)
-            i += 2
+            mpk_text.selectAll()    # for easy copying
+            main_layout.addWidget(mpk_text, 2, 0)
+
+            def show_mpk(account):
+                mpk = mpk_dict.get(unicode(account), "")
+                mpk_text.setText(mpk)
+
+            combobox.currentIndexChanged[str].connect(lambda acc: show_mpk(acc))
+        elif len(mpk_dict) == 1:
+            mpk = mpk_dict.values()[0]
+            mpk_text = ShowQRTextEdit(text=mpk)
+            mpk_text.setMaximumHeight(170)
+            mpk_text.selectAll()    # for easy copying
+            main_layout.addWidget(mpk_text, 2, 0)
 
         vbox = QVBoxLayout()
         vbox.addLayout(main_layout)
@@ -1838,7 +1846,6 @@ class ElectrumWindow(QMainWindow):
 
         dialog.setLayout(vbox)
         dialog.exec_()
-
 
     @protected
     def show_seed_dialog(self, password):
@@ -1891,12 +1898,11 @@ class ElectrumWindow(QMainWindow):
         d = QDialog(self)
         d.setMinimumSize(600, 200)
         d.setModal(1)
+        d.setWindowTitle(_("Public key"))
         vbox = QVBoxLayout()
         vbox.addWidget( QLabel(_("Address") + ': ' + address))
         vbox.addWidget( QLabel(_("Public key") + ':'))
-        keys = QRTextEdit()
-        keys.setReadOnly(True)
-        keys.setText('\n'.join(pubkey_list))
+        keys = ShowQRTextEdit(text='\n'.join(pubkey_list))
         vbox.addWidget(keys)
         vbox.addLayout(close_button(d))
         d.setLayout(vbox)
@@ -1915,12 +1921,11 @@ class ElectrumWindow(QMainWindow):
         d = QDialog(self)
         d.setMinimumSize(600, 200)
         d.setModal(1)
+        d.setWindowTitle(_("Private key"))
         vbox = QVBoxLayout()
         vbox.addWidget( QLabel(_("Address") + ': ' + address))
         vbox.addWidget( QLabel(_("Private key") + ':'))
-        keys = QRTextEdit()
-        keys.setReadOnly(True)
-        keys.setText('\n'.join(pk_list))
+        keys = ShowQRTextEdit(text='\n'.join(pk_list))
         vbox.addWidget(keys)
         vbox.addLayout(close_button(d))
         d.setLayout(vbox)
@@ -2129,12 +2134,14 @@ class ElectrumWindow(QMainWindow):
             return
         if not data:
             return
+        # if the user scanned a bitcoin URI
+        if data.startswith("bitcoin:"):
+            self.pay_from_URI(data)
+            return
+        # else if the user scanned an offline signed tx
         # transactions are binary, but qrcode seems to return utf8...
         z = data.decode('utf8')
-        s = ''
-        for b in z:
-            s += chr(ord(b))
-        data = s.encode('hex')
+        data = ''.join(chr(ord(b)) for b in z).encode('hex')
         tx = self.tx_from_text(data)
         if not tx:
             return
@@ -2157,7 +2164,7 @@ class ElectrumWindow(QMainWindow):
     @protected
     def sign_raw_transaction(self, tx, password):
         try:
-            self.wallet.signrawtransaction(tx, [], password)
+            self.wallet.sign_transaction(tx, password)
         except Exception as e:
             traceback.print_exc(file=sys.stdout)
             QMessageBox.warning(self, _("Error"), str(e))
@@ -2366,6 +2373,10 @@ class ElectrumWindow(QMainWindow):
 
         h, b = ok_cancel_buttons2(d, _('Export'))
         vbox.addLayout(h)
+        
+        run_hook('export_history_dialog', self,hbox)
+        self.update()
+        
         if not d.exec_():
             return
 
@@ -2593,7 +2604,7 @@ class ElectrumWindow(QMainWindow):
         on_video_device = lambda x: self.config.set_key("video_device", str(qr_combo.itemData(x).toString()), True)
         qr_combo.currentIndexChanged.connect(on_video_device)
         widgets.append((qr_label, qr_combo, qr_help))
-                                   
+
         usechange_cb = QCheckBox(_('Use change addresses'))
         usechange_cb.setChecked(self.wallet.use_change)
         usechange_help = HelpButton(_('Using change addresses makes it more difficult for other people to track your transactions.'))
@@ -2661,7 +2672,7 @@ class ElectrumWindow(QMainWindow):
     def plugins_dialog(self):
         from electrum.plugins import plugins
 
-        d = QDialog(self)
+        self.pluginsdialog = d = QDialog(self)
         d.setWindowTitle(_('Reddcoin Electrum Plugins'))
         d.setModal(1)
 
@@ -2712,14 +2723,11 @@ class ElectrumWindow(QMainWindow):
                 cb.clicked.connect(mk_toggle(cb,p,w))
                 grid.addWidget(HelpButton(p.description()), i, 2)
             except Exception:
-                print_msg(_("Error: cannot display plugin"), p)
+                print_msg("Error: cannot display plugin", p)
                 traceback.print_exc(file=sys.stdout)
         grid.setRowStretch(i+1,1)
-
         vbox.addLayout(close_button(d))
-
         d.exec_()
-
 
     def show_account_details(self, k):
         account = self.wallet.accounts[k]

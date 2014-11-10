@@ -74,7 +74,7 @@ class BasePlugin:
 
     def requires_settings(self):
         return False
-    
+
     def enable(self):
         self.set_enabled(True)
         return True

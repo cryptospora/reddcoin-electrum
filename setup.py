@@ -9,8 +9,8 @@ import platform
 import imp
 
 
-if sys.version_info[:3] < (2, 6, 0):
-    sys.exit("Error: Reddcoin Electrum requires Python version >= 2.6.0...")
+if sys.version_info[:3] < (2, 7, 0):
+    sys.exit("Error: Reddcoin Electrum requires Python version >= 2.7.0...")
 
 usr_share = '/usr/share'
 if not os.access(usr_share, os.W_OK):

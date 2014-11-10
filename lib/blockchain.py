@@ -44,6 +44,7 @@ class Blockchain(threading.Thread):
         self.set_local_height()
         self.queue = Queue.Queue()
 
+    
     def height(self):
         return self.local_height
 
@@ -72,7 +73,7 @@ class Blockchain(threading.Thread):
 
             i, header = result
             if not header: continue
-            
+
             height = header.get('block_height')
 
             if height <= self.local_height:
@@ -87,10 +88,10 @@ class Blockchain(threading.Thread):
                 chain = self.get_chain(i, header)
 
                 # skip that server if the result is not consistent
-                if not chain: 
+                if not chain:
                     print_error('e')
                     continue
-                
+
                 # verify the chain
                 if self.verify_chain(chain):
                     print_error("height:", height, i.server)
@@ -103,6 +104,8 @@ class Blockchain(threading.Thread):
 
             self.network.new_blockchain_height(height, i)
 
+                    
+            
     def verify_chain(self, chain):
         first_header = chain[0]
         first_height = first_header.get('block_height')
@@ -149,6 +152,7 @@ class Blockchain(threading.Thread):
 
         self.save_chunk(index, data)
         print_error("validated chunk %d" % (index * self.chunk_size + num - 1))
+        
 
     def header_to_string(self, res):
         s = int_to_hex(res.get('version'), 4) \
@@ -183,7 +187,7 @@ class Blockchain(threading.Thread):
         filename = self.path()
         if os.path.exists(filename):
             return
-        
+
         try:
             import urllib, socket
             socket.setdefaulttimeout(30)
@@ -241,6 +245,8 @@ class Blockchain(threading.Thread):
                 h['block_height'] = block_height
                 self.cache_headers[block_height] = h
                 return h
+ 
+        
 
     def request_header(self, i, h, queue):
         print_error("requesting header %d from %s" % (h, i.server))
